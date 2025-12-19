@@ -1,14 +1,1 @@
-| **`requirements.txt`** | ```
 Flask==2.3.3
-``` | **Lista as dependências** (bibliotecas Python) que o Render precisa instalar para seu `app.py` funcionar. No momento, só precisa do Flask [citation:2][citation:8]. |
-
-### 🚀 Próximos Passos
-
-1.  **Salve os arquivos** no seu computador.
-    *   Salve o primeiro como `app.py` (certifique-se de que a extensão seja `.py`, não `.txt`).
-    *   Salve o segundo como `requirements.txt`.
-2.  **Volte ao seu repositório vazio no GitHub**.
-3.  **Faça o upload** (arraste e solte) desses dois arquivos para a área do repositório no navegador e clique em **"Commit changes"**.
-4.  **Volte ao Render** e, ao conectar o GitHub, você já poderá selecionar este repositório com os arquivos dentro.
-
-Se tiver dificuldade em salvar os arquivos com as extensões corretas, posso te orientar.
