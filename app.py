@@ -17,7 +17,7 @@ INTERNAL_SECRET = os.environ.get('INTERNAL_SECRET', 'INTERNA_PARA_PRODUCAO_ALTER
 licencas_db = {
     "DONO-2025-001": {  # API_ID no formato que seu executável espera
         "telegram_id": "33614184",  # SEU ID REAL do Telegram
-        "validade": "2024-12-31",
+        "validade": "3025-12-31",
         "plano": "premium",
         "ultima_verificacao": None,
         "tentativas_falhas": 0,
@@ -351,3 +351,4 @@ def admin_tentativas():
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
+
