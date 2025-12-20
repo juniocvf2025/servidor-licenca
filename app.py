@@ -22,9 +22,9 @@ logger = logging.getLogger(__name__)
 # Executor para operações assíncronas
 executor = ThreadPoolExecutor(max_workers=4)
 
-# Configurações de segurança
-CHAVE_SECRETA_SERVIDOR = os.environ.get('CHAVE_SECRETA_SERVIDOR', 'CHAVE_PADRAO_SEGURA_ALTERE_NO_RENDER')
-INTERNAL_SECRET = os.environ.get('INTERNAL_SECRET', 'INTERNA_PARA_PRODUCAO_ALTERE_NO_RENDER')
+# Configurações de segurança - VALOR FIXO PARA RESOLVER O BUG
+CHAVE_SECRETA_SERVIDOR = "T3l3gr@m-L1c3nc3-S3cr3tK3y-33614184!2024"
+INTERNAL_SECRET = "R3nd3r-S3cur3-L1c3nc3@Int3rn@l!2024"
 
 # Banco de dados - ESTRUTURA CORRIGIDA
 try:
@@ -283,6 +283,18 @@ def verificar_licenca_diagnostico():
         hash_calculado = hashlib.sha256(
             f"{api_id}:{telegram_id}:{timestamp_cliente}:{CHAVE_SECRETA_SERVIDOR}".encode()
         ).hexdigest()
+        
+        # === DEBUG ADICIONADO AQUI ===
+        logger.info(f"=== DEBUG HASH ===")
+        logger.info(f"DEBUG: api_id={api_id}")
+        logger.info(f"DEBUG: telegram_id={telegram_id}")
+        logger.info(f"DEBUG: timestamp_cliente={timestamp_cliente}")
+        logger.info(f"DEBUG: CHAVE_SECRETA_SERVIDOR={CHAVE_SECRETA_SERVIDOR}")
+        logger.info(f"DEBUG: String completa='{api_id}:{telegram_id}:{timestamp_cliente}:{CHAVE_SECRETA_SERVIDOR}'")
+        logger.info(f"DEBUG: Hash calculado={hash_calculado}")
+        logger.info(f"DEBUG: Hash recebido={dados['hash_verificacao']}")
+        logger.info(f"=== FIM DEBUG ===")
+        # === FIM DEBUG ===
         
         if dados['hash_verificacao'] != hash_calculado:
             logger.warning(f"Hash inválido para API_ID: {api_id}")
@@ -557,22 +569,3 @@ if __name__ == '__main__':
     logger.info(f"Licenças carregadas: {list(licencas_db.keys())}")
     
     app.run(debug=False, host='0.0.0.0', port=5000)
-# NO GitHub, edite o app.py
-
-# Na função verificar_licenca_diagnostico(), APÓS calcular o hash:
-hash_calculado = hashlib.sha256(
-    f"{api_id}:{telegram_id}:{timestamp_cliente}:{CHAVE_SECRETA_SERVIDOR}".encode()
-).hexdigest()
-
-# === ADICIONE ESTAS 5 LINHAS DE DEBUG ===
-logger.info(f"=== DEBUG HASH ===")
-logger.info(f"DEBUG: api_id={api_id}")
-logger.info(f"DEBUG: telegram_id={telegram_id}")
-logger.info(f"DEBUG: timestamp_cliente={timestamp_cliente}")
-logger.info(f"DEBUG: CHAVE_SECRETA_SERVIDOR={CHAVE_SECRETA_SERVIDOR}")
-logger.info(f"DEBUG: String completa='{api_id}:{telegram_id}:{timestamp_cliente}:{CHAVE_SECRETA_SERVIDOR}'")
-logger.info(f"DEBUG: Hash calculado={hash_calculado}")
-logger.info(f"DEBUG: Hash recebido={dados['hash_verificacao']}")
-logger.info(f"=== FIM DEBUG ===")
-# === FIM DAS LINHAS ADICIONAIS ===
-
