@@ -1,3 +1,16 @@
 {
-    "licencas_validas": ["33614184","12345678"]
+  "licencas": {
+    "DONO-2025-001": {
+      "telegram_id": "33614184",
+      "nome": "Licença Premium Principal",
+      "plano": "P1",
+      "validade_dias": 36500,
+      "data_criacao": "2024-12-21",
+      "status": "ativa"
+    }
+  },
+  "configuracoes": {
+    "chave_secreta": "T3l3gr@m-L1c3nc3-S3cr3tK3y-33614184!2024",
+    "versao": "3.1"
+  }
 }
