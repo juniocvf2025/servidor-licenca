@@ -1,83 +1,148 @@
+# servidor_licenca.py - Sistema de Licenciamento com Vínculo Telegram
 from flask import Flask, request, jsonify
-from datetime import datetime
-import json
+import hashlib
+import time
 import os
-import time  # <-- NOVA IMPORTACAO para o rate limiting
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 
-# Nome do arquivo que armazena as licenças
-ARQUIVO_LICENCAS = "licencas.json"
+# Configurações de segurança (usar variáveis de ambiente no Render)
+CHAVE_SECRETA_SERVIDOR = os.environ.get('CHAVE_SECRETA', 'CHAVE_PADRAO_SEGURA_ALTERE_NO_RENDER')
+INTERNAL_SECRET = os.environ.get('INTERNAL_SECRET', 'INTERNA_PARA_PRODUCAO_ALTERE_NO_RENDER')
 
-# --- Dicionário para armazenar tentativas de acesso (Rate Limiting) ---
-# Em um sistema maior, use Redis. Para seu caso, em memória é suficiente.
-tentativas_por_ip = {}
-
-def carregar_licencas():
-    """Carrega a lista de licenças do arquivo JSON."""
-    try:
-        if os.path.exists(ARQUIVO_LICENCAS):
-            with open(ARQUIVO_LICENCAS, 'r', encoding='utf-8') as f:
-                return json.load(f)
-    except Exception as e:
-        print(f"Erro ao carregar licenças: {e}")
-    # Retorna uma lista vazia padrão se o arquivo não existir ou der erro
-    return {"licencas_validas": []}
-
-@app.route('/')
-def home():
-    return "✅ Servidor de Licenças Online"
+# Banco de dados SIMULADO (substitua por real)
+# SEU ID DO TELEGRAM: 33614184
+licencas_db = {
+    "33614184": {  # API_ID do usuário (SEU ID DO TELEGRAM)
+        "telegram_id": "33614184",  # ID único do Telegram (@username ou 5511999999999)
+        "validade": "2024-12-31",
+        "plano": "premium",
+        "ultima_verificacao": None
+    },
+    "27539672": {  # Exemplo de outro usuário
+        "telegram_id": "user123456",  # ID único do Telegram
+        "validade": "2024-10-31",
+        "plano": "basico",
+        "ultima_verificacao": None
+    }
+}
 
 @app.route('/verificar_licenca', methods=['POST'])
 def verificar_licenca():
-    # --- INÍCIO DO SISTEMA DE RATE LIMITING ---
-    ip_cliente = request.remote_addr
-    hora_atual = time.time()
-
-    # Limpa tentativas antigas (mais de 1 minuto) deste IP
-    if ip_cliente in tentativas_por_ip:
-        # Mantém apenas registros com menos de 60 segundos
-        tentativas_por_ip[ip_cliente] = [
-            tentativa for tentativa in tentativas_por_ip[ip_cliente]
-            if hora_atual - tentativa < 60
-        ]
-    else:
-        tentativas_por_ip[ip_cliente] = []
-
-    # Bloqueia se tiver 10 ou mais tentativas no último minuto
-    if len(tentativas_por_ip[ip_cliente]) >= 10:
-        return jsonify({
-            "valido": False,
-            "mensagem": "⏳ Muitas tentativas seguidas. Aguarde 1 minuto."
-        }), 429  # Código HTTP 429 = "Too Many Requests"
-
-    # Registra a tentativa atual deste IP
-    tentativas_por_ip[ip_cliente].append(hora_atual)
-    # --- FIM DO SISTEMA DE RATE LIMITING ---
-
-    # --- LÓGICA ORIGINAL DE VERIFICAÇÃO DE LICENÇA ---
+    """Versão reforçada com vínculo Telegram - resposta ofuscada"""
     try:
         dados = request.json
-        api_id = dados.get('api_id', '').strip()
-
-        # Carrega as licenças válidas do arquivo
-        banco_de_dados = carregar_licencas()
-        licencas_validas = banco_de_dados.get("licencas_validas", [])
-
-        # Verificação REAL contra a lista
-        if api_id and api_id in licencas_validas:
+        
+        # 1. Validação básica
+        required = ['api_id', 'telegram_id', 'timestamp', 'hash_verificacao']
+        if not all(k in dados for k in required):
+            return jsonify({"status": "erro", "msg": "Dados incompletos"}), 400
+        
+        # 2. Verifica timestamp (prevenção replay)
+        tempo_atual = time.time()
+        if abs(tempo_atual - dados['timestamp']) > 300:  # 5 minutos
+            return jsonify({"status": "erro", "msg": "Timestamp inválido"}), 403
+        
+        # 3. Verifica hash de verificação
+        hash_calculado = hashlib.sha256(
+            f"{dados['api_id']}:{dados['telegram_id']}:{dados['timestamp']}:{CHAVE_SECRETA_SERVIDOR}".encode()
+        ).hexdigest()
+        
+        if dados['hash_verificacao'] != hash_calculado:
+            return jsonify({"status": "erro", "msg": "Autenticação inválida"}), 403
+        
+        # 4. Verifica licença no banco
+        api_id = str(dados['api_id'])
+        if api_id not in licencas_db:
+            return jsonify({"status": "erro", "msg": "Licença não encontrada"}), 404
+        
+        licenca = licencas_db[api_id]
+        
+        # 5. VERIFICAÇÃO CRÍTICA: Telegram ID corresponde?
+        if licenca['telegram_id'] != dados['telegram_id']:
+            # Registra tentativa de uso com ID diferente
+            registrar_suspeita(api_id, dados['telegram_id'])
             return jsonify({
-                "valido": True,
-                "mensagem": f"✅ Licença válida para {api_id}",
-                "timestamp": str(datetime.now())
-            })
-        else:
-            return jsonify({
-                "valido": False,
-                "mensagem": "❌ API_ID não encontrado ou licença inválida."
-            })
+                "status": "erro", 
+                "msg": "Vínculo inválido",
+                "codigo": "TELEGRAM_MISMATCH"
+            }), 403
+        
+        # 6. Verifica validade
+        if datetime.now() > datetime.strptime(licenca['validade'], '%Y-%m-%d'):
+            return jsonify({"status": "erro", "msg": "Licença expirada"}), 403
+        
+        # 7. Atualiza último acesso
+        licenca['ultima_verificacao'] = datetime.now().isoformat()
+        
+        # 8. Resposta OFUSCADA (padrão específico)
+        resposta = gerar_resposta_ofuscada(api_id, licenca)
+        
+        return resposta, 200
+        
     except Exception as e:
-        return jsonify({"valido": False, "mensagem": f"Erro interno: {str(e)}"}), 500
+        return jsonify({"status": "erro", "msg": f"Erro interno: {str(e)[:50]}"}), 500
+
+def gerar_resposta_ofuscada(api_id, licenca):
+    """Gera resposta em formato específico que só seu cliente entende"""
+    
+    # Códigos secretos para tipos de resposta
+    codigos = {
+        "premium": "P1",
+        "basico": "B2",
+        "expiracao_proxima": "W3"
+    }
+    
+    # Calcula dias restantes
+    data_validade = datetime.strptime(licenca['validade'], '%Y-%m-%d')
+    dias_restantes = (data_validade - datetime.now()).days
+    
+    # Gera token de sessão único
+    token_sessao = hashlib.sha256(
+        f"{api_id}:{datetime.now().timestamp()}:SESSAO_TOKEN".encode()
+    ).hexdigest()[:16]
+    
+    # Formato ofuscado: STATUS|CODIGO_PLANO|DIAS|TOKEN|CHECKSUM
+    codigo_plano = codigos.get(licenca['plano'], "U0")
+    status = "1" if dias_restantes > 0 else "0"
+    
+    payload = f"{status}|{codigo_plano}|{dias_restantes}|{token_sessao}"
+    
+    # Checksum interno
+    checksum = hashlib.md5(f"{payload}:{INTERNAL_SECRET}".encode()).hexdigest()[:8]
+    
+    return f"{payload}|{checksum}"
+
+def registrar_suspeita(api_id, telegram_id_tentado):
+    """Registra tentativa suspeita para análise"""
+    try:
+        with open('suspeitas.log', 'a') as f:
+            f.write(f"{datetime.now()}: API_ID={api_id} tentou com Telegram_ID={telegram_id_tentado}\n")
+    except:
+        pass
+
+# Endpoint de teste para verificar se o servidor está online
+@app.route('/')
+def index():
+    return jsonify({
+        "status": "online",
+        "servico": "Sistema de Licenciamento com Vínculo Telegram",
+        "versao": "2.0",
+        "autor": "ID Telegram: 33614184",
+        "endpoints": {
+            "verificar_licenca": "POST /verificar_licenca"
+        }
+    })
+
+# Endpoint de saúde do servidor
+@app.route('/health')
+def health_check():
+    return jsonify({
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "licencas_cadastradas": len(licencas_db)
+    })
 
 if __name__ == '__main__':
-    app.run(debug=False, host='0.0.0.0', port=5000)
+    app.run(debug=True, host='0.0.0.0', port=5000)
