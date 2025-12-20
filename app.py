@@ -13,12 +13,20 @@ app = Flask(__name__)
 CHAVE_SECRETA_SERVIDOR = os.environ.get('CHAVE_SECRETA', 'CHAVE_PADRAO_SEGURA_ALTERE_NO_RENDER')
 INTERNAL_SECRET = os.environ.get('INTERNAL_SECRET', 'INTERNA_PARA_PRODUCAO_ALTERE_NO_RENDER')
 
-# Banco de dados SIMULADO
+# Banco de dados SIMULADO com formato DONO-2025-XXX
 licencas_db = {
-    "TEL-33614184-PRO": {  # API_ID formatado (não seu ID Telegram)
+    "DONO-2025-001": {  # API_ID no formato que seu executável espera
         "telegram_id": "33614184",  # SEU ID REAL do Telegram
         "validade": "2024-12-31",
         "plano": "premium",
+        "ultima_verificacao": None,
+        "tentativas_falhas": 0,
+        "bloqueado_ate": None
+    },
+    "DONO-2025-002": {  # Outra licença de exemplo
+        "telegram_id": "outro_usuario",
+        "validade": "2024-10-31",
+        "plano": "basico",
         "ultima_verificacao": None,
         "tentativas_falhas": 0,
         "bloqueado_ate": None
@@ -102,11 +110,6 @@ def verificar_bloqueio_licenca(api_id):
             if datetime.now() < licenca['bloqueado_ate']:
                 tempo_restante = (licenca['bloqueado_ate'] - datetime.now()).seconds
                 return True, tempo_restante
-        
-        # Bloqueia licença se muitas tentativas falhas
-        if licenca.get('tentativas_falhas', 0) >= 5:
-            licenca['bloqueado_ate'] = datetime.now() + timedelta(minutes=30)
-            return True, 1800
     
     return False, 0
 
@@ -169,10 +172,14 @@ def verificar_licenca():
             # Hash inválido - possível ataque
             registrar_tentativa_falha(ip_cliente, dados.get('api_id'))
             
-            # Incrementa tentativas na licença
+            # Incrementa tentativas na licença (TENTATIVAS FALHAS TOTAIS)
             api_id = str(dados['api_id'])
             if api_id in licencas_db:
                 licencas_db[api_id]['tentativas_falhas'] = licencas_db[api_id].get('tentativas_falhas', 0) + 1
+                
+                # BLOQUEIO: 10 tentativas falhas totais = 30 min bloqueio
+                if licencas_db[api_id]['tentativas_falhas'] >= 10:
+                    licencas_db[api_id]['bloqueado_ate'] = datetime.now() + timedelta(minutes=30)
             
             return jsonify({
                 "status": "erro", 
@@ -201,14 +208,18 @@ def verificar_licenca():
         if licenca['telegram_id'] != dados['telegram_id']:
             # Tentativa de uso com ID diferente - ALTO RISCO
             registrar_tentativa_falha(ip_cliente, api_id)
-            licenca['tentativas_falhas'] = licenca.get('tentativas_falhas', 0) + 1
+            
+            # Incrementa contador de telegram_id errados
+            telegram_errados = licenca.get('telegram_errados', 0) + 1
+            licenca['telegram_errados'] = telegram_errados
+            
+            # BLOQUEIO: 5 tentativas com telegram_id errado = 1 hora bloqueio
+            if telegram_errados >= 5:
+                licenca['bloqueado_ate'] = datetime.now() + timedelta(hours=1)
+                mensagem = "Licença bloqueada por 1 hora (5 tentativas com ID Telegram errado)"
             
             # Registra tentativa suspeita
             registrar_suspeita(api_id, dados['telegram_id'], ip_cliente)
-            
-            # Bloqueia após 3 tentativas com ID errado
-            if licenca.get('tentativas_falhas', 0) >= 3:
-                licenca['bloqueado_ate'] = datetime.now() + timedelta(hours=1)
             
             return jsonify({
                 "status": "erro", 
@@ -216,19 +227,28 @@ def verificar_licenca():
                 "codigo": "TELEGRAM_MISMATCH"
             }), 403
         
-        # 7. Verifica validade
+        # 7. RESET dos contadores (sucesso!)
+        # Reset telegram_errados quando acerta
+        licenca['telegram_errados'] = 0
+        
+        # Reset parcial de tentativas_falhas (mas mantém histórico)
+        if licenca.get('tentativas_falhas', 0) > 0:
+            licenca['tentativas_falhas'] = max(0, licenca['tentativas_falhas'] - 2)
+        
+        # Remove bloqueio se existir
+        licenca['bloqueado_ate'] = None
+        
+        # 8. Verifica validade
         if datetime.now() > datetime.strptime(licenca['validade'], '%Y-%m-%d'):
             return jsonify({"status": "erro", "msg": "Licença expirada"}), 403
         
-        # 8. RESET das tentativas falhas (sucesso!)
-        licenca['tentativas_falhas'] = 0
-        licenca['bloqueado_ate'] = None
+        # 9. Atualiza último acesso
         licenca['ultima_verificacao'] = datetime.now().isoformat()
         
-        # 9. Resposta OFUSCADA
+        # 10. Resposta OFUSCADA
         resposta = gerar_resposta_ofuscada(api_id, licenca)
         
-        # 10. Log de acesso bem-sucedido
+        # 11. Log de acesso bem-sucedido
         registrar_acesso_valido(api_id, ip_cliente)
         
         return resposta, 200
@@ -280,17 +300,20 @@ def registrar_acesso_valido(api_id, ip_cliente):
     except:
         pass
 
-# Endpoint de status do sistema (com proteção)
+# Endpoint de status do sistema
 @app.route('/')
 def index():
     return jsonify({
         "status": "online",
         "servico": "Sistema de Licenciamento FORTIFICADO v3.0",
         "versao": "3.0",
+        "formato_licenca": "DONO-ANO-NNN",
         "protecoes": [
             "Força bruta (IP e licença)",
             "Rate limiting inteligente",
             "Bloqueios progressivos",
+            "5 telegram_id errados = 1h bloqueio",
+            "10 tentativas falhas = 30m bloqueio",
             "Logs de segurança",
             "Resposta ofuscada"
         ]
