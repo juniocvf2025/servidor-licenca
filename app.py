@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 executor = ThreadPoolExecutor(max_workers=4)
 
 # Configurações de segurança
-CHAVE_SECRETA_SERVIDOR = os.environ.get('CHAVE_SECRETA', 'CHAVE_PADRAO_SEGURA_ALTERE_NO_RENDER')
+CHAVE_SECRETA_SERVIDOR = os.environ.get('CHAVE_SECRETA_SERVIDOR', 'CHAVE_PADRAO_SEGURA_ALTERE_NO_RENDER')
 INTERNAL_SECRET = os.environ.get('INTERNAL_SECRET', 'INTERNA_PARA_PRODUCAO_ALTERE_NO_RENDER')
 
 # Banco de dados - ESTRUTURA CORRIGIDA
@@ -557,3 +557,4 @@ if __name__ == '__main__':
     logger.info(f"Licenças carregadas: {list(licencas_db.keys())}")
     
     app.run(debug=False, host='0.0.0.0', port=5000)
+
