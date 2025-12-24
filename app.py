@@ -13,9 +13,9 @@ app = Flask(__name__)
 licencas_validas = {
     "DONO-2025-001": {
         "api_id_vinculado": "33614184",  # API_ID vinculado a esta licença
-        "validade_dias": 365,
+        "validade_dias": 3365,
         "ativo": True,
-        "data_ativacao": "2024-01-01",
+        "data_ativacao": "2025-01-01",
         "ultima_verificacao": None
     },
     "DONO-2025-002": {
@@ -423,3 +423,4 @@ if __name__ == '__main__':
     
     # Iniciar servidor
     app.run(host=HOST, port=PORT, debug=DEBUG)
+
