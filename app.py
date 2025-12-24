@@ -25,19 +25,19 @@ print(f"🔑 Servidor iniciado com chave: {SECRET_KEY}")
 licencas = {
     "DONO-2025-001": {
         "vinculo_api_id": "33614184",
-        "validade_dias": 365,
+        "validade_dias": 3365,
         "ativo": True,
         "data_ativacao": "2024-01-01"
     },
     "DONO-2025-002": {
         "vinculo_api_id": "33614184",
-        "validade_dias": 30,
+        "validade_dias": 3330,
         "ativo": True,
         "data_ativacao": "2024-01-15"
     },
     "TESTE-2024-001": {
         "vinculo_api_id": "33614184",
-        "validade_dias": 7,
+        "validade_dias": 7442,
         "ativo": True,
         "data_ativacao": "2024-01-01"
     }
@@ -190,3 +190,4 @@ def debug_hash():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port)
+
