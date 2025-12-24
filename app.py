@@ -12,7 +12,7 @@ SECRET_KEY = base64.b64decode("VDNsM2dyQG0tTDFjM25jMy1TM2NyM3RLM3ktMzM2MTQxODQhM
 
 # LICENÇAS EXATAS DO SEU CÓDIGO
 licencas = {
-    "DONO-2025-001": {"api_id": "33614184", "dias": 365, "ativo": True},
+    "DONO-2025-001": {"api_id": "33614184", "dias": 3365, "ativo": True},
     "DONO-2025-002": {"api_id": "33614184", "dias": 30, "ativo": True},
     "TESTE-2024-001": {"api_id": "33614184", "dias": 7, "ativo": True},
 }
@@ -76,3 +76,4 @@ def status():
 
 if __name__ == '__main__':
     app.run(debug=True)
+
