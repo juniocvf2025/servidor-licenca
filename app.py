@@ -18,7 +18,7 @@ CORS(app)  # Permite requisições de qualquer origem
 CHAVE_FIXA = "T3l3gr@m-L1c3nc3-S3cr3tK3y-33614184!2024"
 
 # SENHA DE ADMIN - MUDE ESTA SENHA!
-SENHA_ADMIN = "AdminSeguro@2025!"
+SENHA_ADMIN = "BotTelegram2526"
 
 # Arquivo para armazenar licenças
 LICENCAS_FILE = "licencas.json"
@@ -419,3 +419,4 @@ if __name__ == '__main__':
     print("=" * 50)
     
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)), debug=False)
+
