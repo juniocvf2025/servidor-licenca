@@ -1,426 +1,394 @@
-from flask import Flask, request, jsonify, render_template
+from flask import Flask, request, jsonify
 import hashlib
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
+import base64
 import json
 import os
 
 app = Flask(__name__)
 
 # =============================================
-# BASE DE DADOS DE LICENÇAS (EM MEMÓRIA)
+# DECODIFICAÇÃO EXATA DA CHAVE DO CLIENTE
+# =============================================
+# Do seu código: _OFS2 = "VDNsM2dyQG0tTDFjM25jMy1TM2NyM3RLM3ktMzM2MTQxODQhMjAyNA=="
+SECRET_KEY_B64 = "VDNsM2dyQG0tTDFjM25jMy1TM2NyM3RLM3ktMzM2MTQxODQhMjAyNA=="
+SECRET_KEY = base64.b64decode(SECRET_KEY_B64).decode('utf-8')  # "T3l3gr@m-L1c3nc3-S3cr3tK3y-33614184!2024"
+
+print(f"🔑 Chave secreta decodificada: {SECRET_KEY}")
+
+# =============================================
+# BASE DE DADOS DE LICENÇAS COM VÍNCULO API_ID
 # =============================================
 licencas_validas = {
     "DONO-2025-001": {
-        "api_id_vinculado": "33614184",  # API_ID vinculado a esta licença
+        "vinculo_api_id": "33614184",  # DEVE SER EXATAMENTE ESTE API_ID
         "validade_dias": 3365,
         "ativo": True,
-        "data_ativacao": "2025-01-01",
-        "ultima_verificacao": None
+        "data_ativacao": "2024-01-01",
+        "nome": "Licença Dono 2025-001",
+        "max_uso": 999999,
+        "usos": 0
     },
     "DONO-2025-002": {
-        "api_id_vinculado": "33614184",  # Mesmo API_ID pode ter múltiplas licenças
+        "vinculo_api_id": "33614184",
         "validade_dias": 30,
         "ativo": True,
         "data_ativacao": "2024-01-15",
-        "ultima_verificacao": None
+        "nome": "Licença Dono 2025-002",
+        "max_uso": 999999,
+        "usos": 0
     },
     "TESTE-2024-001": {
-        "api_id_vinculado": "33614184",
+        "vinculo_api_id": "33614184",
         "validade_dias": 7,
         "ativo": True,
         "data_ativacao": "2024-01-01",
-        "ultima_verificacao": None
+        "nome": "Licença Teste 2024-001",
+        "max_uso": 100,
+        "usos": 0
     }
 }
 
-# Chave secreta para validação (deve ser a mesma usada no cliente)
-SECRET_KEY = "TDNsM2dyQG0tTDFjM25jMy1TM2NyM3RLM3ktMzM2MTQxODQhMjAyNA=="
+# =============================================
+# FUNÇÃO PARA CALCULAR HASH IGUAL AO CLIENTE
+# =============================================
+def calcular_hash_cliente(licenca_id, vinculo_api_id, timestamp):
+    """
+    Calcula o hash EXATAMENTE como o cliente faz:
+    SHA256(licenca_id:vinculo_api_id:timestamp:SECRET_KEY)
+    
+    Onde SECRET_KEY = "T3l3gr@m-L1c3nc3-S3cr3tK3y-33614184!2024"
+    """
+    input_str = f"{licenca_id}:{vinculo_api_id}:{timestamp}:{SECRET_KEY}"
+    return hashlib.sha256(input_str.encode()).hexdigest()
 
 # =============================================
-# ROTAS DO SERVIDOR
+# ENDPOINT PRINCIPAL - FORMATO EXATO DO CLIENTE
 # =============================================
-
-@app.route('/')
-def index():
-    """Página inicial do servidor de licenças"""
-    return render_template('index.html', total_licencas=len(licencas_validas))
-
 @app.route('/verificar_licenca', methods=['POST'])
 def verificar_licenca():
-    """Endpoint principal para verificação de licenças"""
+    """Endpoint que aceita EXATAMENTE o formato do cliente"""
     try:
-        # Obter dados da requisição
-        dados = request.get_json()
+        print("\n" + "="*60)
+        print("🔐 VERIFICAÇÃO DE LICENÇA - FORMATO CLIENTE")
+        print("="*60)
         
-        if not dados:
+        # 1. Obter dados JSON
+        if not request.is_json:
+            print("❌ Content-Type não é JSON")
             return jsonify({
                 "valido": False,
-                "message": "Dados inválidos",
-                "erro": "JSON inválido"
+                "message": "Content-Type deve ser application/json"
             }), 400
         
-        # Extrair campos
-        licenca_id = dados.get('api_id')  # campo 'api_id' no cliente
-        api_id_vinculado = dados.get('telegram_id')  # campo 'telegram_id' no cliente
+        dados = request.get_json()
+        print(f"📦 JSON recebido: {json.dumps(dados, indent=2)}")
+        
+        # 2. Extrair campos EXATOS do cliente
+        # O cliente envia: api_id, telegram_id, timestamp, hash_verificacao
+        licenca_id = dados.get('api_id')
+        vinculo_api_id = dados.get('telegram_id')
         timestamp = dados.get('timestamp')
         hash_recebido = dados.get('hash_verificacao')
         
-        # Verificar campos obrigatórios
-        if not all([licenca_id, api_id_vinculado, timestamp, hash_recebido]):
+        # 3. Verificar campos obrigatórios
+        campos_faltando = []
+        if not licenca_id: campos_faltando.append('api_id')
+        if not vinculo_api_id: campos_faltando.append('telegram_id')
+        if not timestamp: campos_faltando.append('timestamp')
+        if not hash_recebido: campos_faltando.append('hash_verificacao')
+        
+        if campos_faltando:
+            print(f"❌ Campos faltando: {campos_faltando}")
             return jsonify({
                 "valido": False,
-                "message": "Campos obrigatórios faltando",
-                "erro": "Faltam parâmetros"
+                "message": f"Campos obrigatórios faltando: {', '.join(campos_faltando)}"
             }), 400
         
-        # 1. Verificar se a licença existe
-        if licenca_id not in licencas_validas:
+        print(f"\n📋 Dados extraídos:")
+        print(f"   Licença ID: {licenca_id}")
+        print(f"   Vínculo API_ID: {vinculo_api_id}")
+        print(f"   Timestamp: {timestamp}")
+        print(f"   Hash recebido: {hash_recebido}")
+        
+        # 4. Verificar formato da licença
+        import re
+        if not re.match(r'^[A-Z]+-\d{4}-\d{3}$', licenca_id):
+            print(f"❌ Formato de licença inválido: {licenca_id}")
             return jsonify({
                 "valido": False,
-                "message": "Licença não encontrada",
-                "erro": "ID_licenca_inexistente"
+                "message": "Formato do ID inválido. Use: DONO-2025-001"
+            }), 400
+        
+        # 5. Verificar se licença existe
+        if licenca_id not in licencas_validas:
+            print(f"❌ Licença não encontrada: {licenca_id}")
+            return jsonify({
+                "valido": False,
+                "message": "Licença não encontrada"
             }), 404
         
-        licenca = licencas_validas[licenca_id]
+        licenca_info = licencas_validas[licenca_id]
+        print(f"✅ Licença encontrada: {licenca_info['nome']}")
         
-        # 2. Verificar se a licença está ativa
-        if not licenca.get('ativo', True):
+        # 6. Verificar se licença está ativa
+        if not licenca_info.get('ativo', True):
+            print(f"❌ Licença desativada: {licenca_id}")
             return jsonify({
                 "valido": False,
-                "message": "Licença desativada",
-                "erro": "Licenca_desativada"
+                "message": "Licença desativada"
             }), 403
         
-        # 3. Verificar vínculo do API_ID
-        if str(licenca['api_id_vinculado']) != str(api_id_vinculado):
+        # 7. Verificar vínculo API_ID (CRÍTICO!)
+        if str(licenca_info['vinculo_api_id']) != str(vinculo_api_id):
+            print(f"❌ API_ID não vinculado: esperado {licenca_info['vinculo_api_id']}, recebido {vinculo_api_id}")
             return jsonify({
                 "valido": False,
                 "message": "API_ID não vinculado a esta licença",
-                "erro": "API_ID_nao_vinculado"
+                "esperado": licenca_info['vinculo_api_id'],
+                "recebido": vinculo_api_id
             }), 403
         
-        # 4. Verificar validade (em dias)
-        data_ativacao = datetime.strptime(licenca['data_ativacao'], '%Y-%m-%d')
+        print(f"✅ API_ID vinculado corretamente: {vinculo_api_id}")
+        
+        # 8. Verificar validade da licença
+        data_ativacao = datetime.strptime(licenca_info['data_ativacao'], '%Y-%m-%d')
         dias_passados = (datetime.now() - data_ativacao).days
-        dias_restantes = licenca['validade_dias'] - dias_passados
+        dias_restantes = licenca_info['validade_dias'] - dias_passados
         
         if dias_restantes <= 0:
+            print(f"❌ Licença expirada: {dias_passados} dias passados")
             return jsonify({
                 "valido": False,
                 "message": "Licença expirada",
-                "erro": "Licenca_expirada",
                 "dias_restantes": 0
             }), 403
         
-        # 5. Verificar hash de segurança
-        # O cliente deve calcular: hash = SHA256(licenca_id:api_id_vinculado:timestamp:SECRET_KEY)
-        hash_calculado = hashlib.sha256(
-            f"{licenca_id}:{api_id_vinculado}:{timestamp}:{SECRET_KEY}".encode()
-        ).hexdigest()
+        print(f"✅ Validade OK: {dias_restantes} dias restantes")
         
-        if hash_recebido != hash_calculado:
-            return jsonify({
-                "valido": False,
-                "message": "Falha na verificação de segurança",
-                "erro": "Hash_invalido"
-            }), 403
-        
-        # 6. Verificar timestamp (não muito antigo)
+        # 9. Verificar timestamp (não muito antigo)
         tempo_atual = int(time.time())
         tempo_requisicao = int(timestamp)
         
         if abs(tempo_atual - tempo_requisicao) > 300:  # 5 minutos de tolerância
+            print(f"❌ Timestamp expirado: {tempo_requisicao} (atual: {tempo_atual})")
             return jsonify({
                 "valido": False,
-                "message": "Timestamp expirado",
-                "erro": "Timestamp_expirado"
+                "message": "Timestamp expirado"
             }), 403
         
-        # 7. Atualizar última verificação
-        licenca['ultima_verificacao'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        print(f"✅ Timestamp válido: diferença {abs(tempo_atual - tempo_requisicao)} segundos")
         
-        # 8. Retornar sucesso
-        return jsonify({
+        # 10. CALCULAR E VERIFICAR HASH (PARTE MAIS IMPORTANTE!)
+        print(f"\n🔐 CALCULANDO HASH...")
+        print(f"   Entrada: '{licenca_id}:{vinculo_api_id}:{timestamp}:{SECRET_KEY}'")
+        
+        hash_calculado = calcular_hash_cliente(licenca_id, vinculo_api_id, timestamp)
+        print(f"   Hash calculado: {hash_calculado}")
+        print(f"   Hash recebido:  {hash_recebido}")
+        
+        if hash_calculado != hash_recebido:
+            print(f"❌ HASH NÃO CONFERE!")
+            print(f"   Diferença detectada")
+            
+            # Debug: mostrar possíveis erros
+            print(f"\n🔍 DEBUG - Tentando variações:")
+            
+            # Variação 1: Com pipe
+            hash_pipe = hashlib.sha256(f"{licenca_id}|{vinculo_api_id}|{timestamp}|{SECRET_KEY}".encode()).hexdigest()
+            print(f"   Com |: {hash_pipe[:20]}...")
+            
+            # Variação 2: Sem separador
+            hash_sem = hashlib.sha256(f"{licenca_id}{vinculo_api_id}{timestamp}{SECRET_KEY}".encode()).hexdigest()
+            print(f"   Sem separador: {hash_sem[:20]}...")
+            
+            # Variação 3: Ordem diferente
+            hash_ordem = hashlib.sha256(f"{timestamp}:{licenca_id}:{vinculo_api_id}:{SECRET_KEY}".encode()).hexdigest()
+            print(f"   Ordem dif: {hash_ordem[:20]}...")
+            
+            return jsonify({
+                "valido": False,
+                "message": "Falha na verificação de segurança (hash inválido)",
+                "hash_calculado": hash_calculado,
+                "hash_recebido": hash_recebido
+            }), 403
+        
+        print(f"✅ HASH VÁLIDO!")
+        
+        # 11. Atualizar contador de usos
+        licenca_info['usos'] = licenca_info.get('usos', 0) + 1
+        licenca_info['ultima_verificacao'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        # 12. Verificar limite de usos
+        if licenca_info['usos'] > licenca_info['max_uso']:
+            print(f"⚠️ Limite de usos atingido: {licenca_info['usos']}/{licenca_info['max_uso']}")
+        
+        # 13. Retornar resposta de SUCESSO
+        print(f"\n🎉 LICENÇA VÁLIDA! Enviando resposta...")
+        
+        resposta = {
             "valido": True,
-            "message": f"Licença válida! {dias_restantes} dias restantes",
-            "dias_restantes": dias_restantes,
+            "message": f"✅ Licença válida! ({dias_restantes} dias restantes)",
             "licenca_id": licenca_id,
-            "api_id_vinculado": api_id_vinculado,
-            "validade_dias": licenca['validade_dias'],
-            "timestamp": tempo_atual
-        }), 200
-        
-    except Exception as e:
-        return jsonify({
-            "valido": False,
-            "message": f"Erro interno: {str(e)}",
-            "erro": "erro_interno"
-        }), 500
-
-@app.route('/admin/licencas', methods=['GET'])
-def listar_licencas():
-    """Endpoint administrativo para listar todas as licenças"""
-    # Em produção, adicionar autenticação aqui
-    return jsonify({
-        "total_licencas": len(licencas_validas),
-        "licencas": licencas_validas
-    }), 200
-
-@app.route('/admin/licenca/<licenca_id>', methods=['GET', 'POST', 'DELETE'])
-def gerenciar_licenca(licenca_id):
-    """Endpoint administrativo para gerenciar licenças"""
-    if request.method == 'GET':
-        if licenca_id in licencas_validas:
-            return jsonify({
-                "licenca": licencas_validas[licenca_id]
-            }), 200
-        else:
-            return jsonify({
-                "erro": "Licença não encontrada"
-            }), 404
-    
-    elif request.method == 'POST':
-        dados = request.get_json()
-        
-        # Validar dados
-        campos_obrigatorios = ['api_id_vinculado', 'validade_dias']
-        if not all(campo in dados for campo in campos_obrigatorios):
-            return jsonify({
-                "erro": "Campos obrigatórios faltando"
-            }), 400
-        
-        # Criar/atualizar licença
-        licencas_validas[licenca_id] = {
-            "api_id_vinculado": dados['api_id_vinculado'],
-            "validade_dias": dados['validade_dias'],
-            "ativo": dados.get('ativo', True),
-            "data_ativacao": dados.get('data_ativacao', datetime.now().strftime('%Y-%m-%d')),
-            "ultima_verificacao": None
+            "vinculo_api_id": vinculo_api_id,
+            "dias_restantes": dias_restantes,
+            "usos": licenca_info['usos'],
+            "max_usos": licenca_info['max_uso'],
+            "timestamp": tempo_atual,
+            "hash_verificado": True
         }
         
-        return jsonify({
-            "message": f"Licença {licenca_id} atualizada/criada com sucesso",
-            "licenca": licencas_validas[licenca_id]
-        }), 200
-    
-    elif request.method == 'DELETE':
-        if licenca_id in licencas_validas:
-            del licencas_validas[licenca_id]
-            return jsonify({
-                "message": f"Licença {licenca_id} removida com sucesso"
-            }), 200
+        # Formato que o cliente espera (com | ou JSON)
+        formato = request.args.get('formato', 'json')
+        
+        if formato == 'pipe':
+            # Formato pipe: "1|licenca_id|dias_restantes"
+            resposta_texto = f"1|{licenca_id}|{dias_restantes}"
+            print(f"📤 Resposta (pipe): {resposta_texto}")
+            return resposta_texto, 200, {'Content-Type': 'text/plain'}
         else:
-            return jsonify({
-                "erro": "Licença não encontrada"
-            }), 404
+            # Formato JSON
+            print(f"📤 Resposta (JSON): {json.dumps(resposta, indent=2)}")
+            return jsonify(resposta), 200
+        
+    except Exception as e:
+        print(f"\n💥 ERRO INTERNO: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        
+        return jsonify({
+            "valido": False,
+            "message": f"Erro interno: {str(e)}"
+        }), 500
+
+# =============================================
+# ENDPOINT DE TESTE/DEBUG
+# =============================================
+@app.route('/testar_hash', methods=['GET', 'POST'])
+def testar_hash():
+    """Testa o cálculo do hash"""
+    if request.method == 'GET':
+        return '''
+        <h3>🧪 Testar Hash do Cliente</h3>
+        <form method="POST">
+            <p>Licença ID: <input name="licenca_id" value="DONO-2025-001"></p>
+            <p>API_ID Vinculado: <input name="api_id" value="33614184"></p>
+            <p>Timestamp: <input name="timestamp" value="''' + str(int(time.time())) + '''"></p>
+            <button type="submit">Calcular Hash</button>
+        </form>
+        
+        <h4>Chave Secreta:</h4>
+        <pre>''' + SECRET_KEY + '''</pre>
+        <pre>Base64: ''' + SECRET_KEY_B64 + '''</pre>
+        '''
+    else:
+        licenca_id = request.form.get('licenca_id')
+        api_id = request.form.get('api_id')
+        timestamp = request.form.get('timestamp', str(int(time.time())))
+        
+        input_str = f"{licenca_id}:{api_id}:{timestamp}:{SECRET_KEY}"
+        hash_result = hashlib.sha256(input_str.encode()).hexdigest()
+        
+        return f'''
+        <h3>🔐 Hash Calculado</h3>
+        <p><strong>Entrada:</strong> {input_str}</p>
+        <p><strong>Hash SHA256:</strong> {hash_result}</p>
+        
+        <h4>JSON para enviar:</h4>
+        <pre>
+{{
+    "api_id": "{licenca_id}",
+    "telegram_id": "{api_id}",
+    "timestamp": {timestamp},
+    "hash_verificacao": "{hash_result}"
+}}
+        </pre>
+        
+        <p><a href="/testar_hash">Testar novamente</a></p>
+        '''
 
 @app.route('/status', methods=['GET'])
 def status():
-    """Endpoint de status do servidor"""
+    """Status do servidor"""
+    licencas_info = []
+    for id_lic, info in licencas_validas.items():
+        licencas_info.append({
+            "id": id_lic,
+            "nome": info['nome'],
+            "vinculo_api_id": info['vinculo_api_id'],
+            "validade_dias": info['validade_dias'],
+            "usos": info.get('usos', 0),
+            "max_usos": info['max_uso'],
+            "ativo": info['ativo']
+        })
+    
     return jsonify({
         "status": "online",
-        "servidor": "Sistema de Licenciamento",
-        "versao": "1.0",
-        "data": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-        "licencas_ativas": len([l for l in licencas_validas.values() if l.get('ativo', True)]),
-        "total_licencas": len(licencas_validas)
-    }), 200
+        "servidor": "Sistema de Licenciamento com Vínculo API_ID",
+        "versao": "1.0-exato",
+        "timestamp": int(time.time()),
+        "chave_secreta": SECRET_KEY[:10] + "...",
+        "total_licencas": len(licencas_validas),
+        "licencas": licencas_info
+    })
 
 # =============================================
-# TEMPLATE HTML PARA PÁGINA INICIAL
+# ADMINISTRAÇÃO
 # =============================================
-@app.route('/static/<path:filename>')
-def static_files(filename):
-    return app.send_static_file(filename)
-
-# =============================================
-# CONFIGURAÇÃO E INICIALIZAÇÃO
-# =============================================
-
-def criar_templates():
-    """Cria os templates HTML necessários"""
-    os.makedirs('templates', exist_ok=True)
+@app.route('/admin/adicionar_licenca', methods=['POST'])
+def adicionar_licenca():
+    """Adiciona nova licença (protegido por senha em produção)"""
+    dados = request.get_json()
     
-    # Template index.html
-    index_html = '''
-    <!DOCTYPE html>
-    <html lang="pt-BR">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Sistema de Licenciamento</title>
-        <style>
-            body {
-                font-family: Arial, sans-serif;
-                max-width: 800px;
-                margin: 0 auto;
-                padding: 20px;
-                background-color: #f5f5f5;
-            }
-            .header {
-                background-color: #0078D4;
-                color: white;
-                padding: 20px;
-                border-radius: 10px;
-                text-align: center;
-                margin-bottom: 20px;
-            }
-            .status-card {
-                background-color: white;
-                border-radius: 10px;
-                padding: 20px;
-                margin-bottom: 20px;
-                box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            }
-            .endpoint {
-                background-color: #f8f9fa;
-                border-left: 4px solid #0078D4;
-                padding: 15px;
-                margin-bottom: 10px;
-                border-radius: 0 5px 5px 0;
-            }
-            code {
-                background-color: #e9ecef;
-                padding: 2px 5px;
-                border-radius: 3px;
-                font-family: 'Courier New', monospace;
-            }
-            .success { color: #28a745; }
-            .error { color: #dc3545; }
-            .warning { color: #ffc107; }
-        </style>
-    </head>
-    <body>
-        <div class="header">
-            <h1>🔐 Sistema de Licenciamento</h1>
-            <p>Servidor de verificação de licenças com vínculo API_ID</p>
-        </div>
-        
-        <div class="status-card">
-            <h2>📊 Status do Servidor</h2>
-            <p><strong>Status:</strong> <span class="success">● Online</span></p>
-            <p><strong>Licenças cadastradas:</strong> {{ total_licencas }}</p>
-            <p><strong>Data/Hora:</strong> <span id="datetime"></span></p>
-        </div>
-        
-        <div class="status-card">
-            <h2>🛠️ Endpoints Disponíveis</h2>
-            
-            <div class="endpoint">
-                <h3>POST /verificar_licenca</h3>
-                <p><strong>Descrição:</strong> Verifica se uma licença é válida</p>
-                <p><strong>Parâmetros (JSON):</strong></p>
-                <ul>
-                    <li><code>api_id</code>: ID da licença (ex: DONO-2025-001)</li>
-                    <li><code>telegram_id</code>: API_ID do Telegram vinculado</li>
-                    <li><code>timestamp</code>: Timestamp atual</li>
-                    <li><code>hash_verificacao</code>: Hash SHA256 de verificação</li>
-                </ul>
-            </div>
-            
-            <div class="endpoint">
-                <h3>GET /status</h3>
-                <p><strong>Descrição:</strong> Retorna status do servidor</p>
-            </div>
-            
-            <div class="endpoint">
-                <h3>GET /admin/licencas</h3>
-                <p><strong>Descrição:</strong> Lista todas as licenças (administrativo)</p>
-            </div>
-        </div>
-        
-        <div class="status-card">
-            <h2>📖 Exemplo de Requisição</h2>
-            <pre style="background-color: #f8f9fa; padding: 15px; border-radius: 5px; overflow-x: auto;">
-// Exemplo em Python
-import requests
-import hashlib
-import time
-
-licenca_id = "DONO-2025-001"
-api_id_vinculado = "33614184"
-timestamp = int(time.time())
-secret_key = "SUA_CHAVE_SECRETA"
-
-# Calcular hash
-hash_input = f"{licenca_id}:{api_id_vinculado}:{timestamp}:{secret_key}"
-hash_verificacao = hashlib.sha256(hash_input.encode()).hexdigest()
-
-# Enviar requisição
-dados = {
-    "api_id": licenca_id,
-    "telegram_id": api_id_vinculado,
-    "timestamp": timestamp,
-    "hash_verificacao": hash_verificacao
-}
-
-resposta = requests.post("http://seuservidor.com/verificar_licenca", json=dados)
-print(resposta.json())</pre>
-        </div>
-        
-        <div class="status-card">
-            <h2>🔒 Segurança</h2>
-            <ul>
-                <li>Hash SHA256 para verificação de autenticidade</li>
-                <li>Timestamp com validade de 5 minutos</li>
-                <li>Vínculo obrigatório entre licença e API_ID</li>
-                <li>Validade por dias configurável</li>
-            </ul>
-        </div>
-        
-        <script>
-            // Atualizar data/hora
-            function updateDateTime() {
-                const now = new Date();
-                document.getElementById('datetime').textContent = 
-                    now.toLocaleString('pt-BR');
-            }
-            updateDateTime();
-            setInterval(updateDateTime, 1000);
-        </script>
-    </body>
-    </html>
-    '''
+    licenca_id = dados.get('licenca_id')
+    vinculo_api_id = dados.get('vinculo_api_id', '33614184')
+    validade_dias = dados.get('validade_dias', 30)
+    nome = dados.get('nome', f'Licença {licenca_id}')
     
-    with open('templates/index.html', 'w', encoding='utf-8') as f:
-        f.write(index_html)
-
-def criar_arquivo_config():
-    """Cria arquivo de configuração básico"""
-    config = {
-        "secret_key": "TDNsM2dyQG0tTDFjM25jMy1TM2NyM3RLM3ktMzM2MTQxODQhMjAyNA==",
-        "porta": 5000,
-        "host": "0.0.0.0",
-        "debug": False,
-        "tolerancia_timestamp": 300,
-        "licencas_exemplo": {
-            "DONO-2025-001": {
-                "api_id_vinculado": "33614184",
-                "validade_dias": 365
-            }
-        }
+    if not licenca_id:
+        return jsonify({"erro": "licenca_id é obrigatório"}), 400
+    
+    licencas_validas[licenca_id] = {
+        "vinculo_api_id": vinculo_api_id,
+        "validade_dias": validade_dias,
+        "ativo": True,
+        "data_ativacao": datetime.now().strftime('%Y-%m-%d'),
+        "nome": nome,
+        "max_uso": 999999,
+        "usos": 0
     }
     
-    with open('config.json', 'w', encoding='utf-8') as f:
-        json.dump(config, f, indent=4)
+    return jsonify({
+        "sucesso": True,
+        "message": f"Licença {licenca_id} adicionada",
+        "licenca": licencas_validas[licenca_id]
+    })
 
+# =============================================
+# INICIALIZAÇÃO
+# =============================================
 if __name__ == '__main__':
-    # Criar templates e configurações
-    criar_templates()
-    criar_arquivo_config()
-    
-    # Configurações do servidor
     PORT = int(os.environ.get('PORT', 5000))
     HOST = os.environ.get('HOST', '0.0.0.0')
-    DEBUG = os.environ.get('DEBUG', 'False').lower() == 'true'
+    DEBUG = os.environ.get('DEBUG', 'True').lower() == 'true'
     
-    print(f"🚀 Iniciando servidor de licenciamento...")
-    print(f"📡 Endpoint principal: POST {HOST}:{PORT}/verificar_licenca")
-    print(f"🔗 Página web: http://{HOST}:{PORT}/")
-    print(f"📊 Total de licenças: {len(licencas_validas)}")
-    print(f"🔐 Chave secreta configurada: {SECRET_KEY[:10]}...")
+    print("\n" + "="*70)
+    print("🚀 SERVIDOR DE LICENÇAS - VÍNCULO API_ID")
+    print("="*70)
+    print(f"🔑 Chave secreta decodificada: {SECRET_KEY}")
+    print(f"🔗 Vínculo API_ID obrigatório: 33614184")
+    print(f"📡 URL: http://{HOST if HOST != '0.0.0.0' else 'localhost'}:{PORT}")
+    print(f"🔧 Modo debug: {DEBUG}")
+    print("\n📋 Licenças disponíveis:")
+    for lic_id, info in licencas_validas.items():
+        print(f"   • {lic_id} -> API_ID: {info['vinculo_api_id']} ({info['validade_dias']} dias)")
     
-    # Iniciar servidor
+    print("\n🌐 Endpoints:")
+    print("   POST /verificar_licenca     - Verificar licença (formato cliente)")
+    print("   GET  /testar_hash           - Testar cálculo de hash")
+    print("   GET  /status                - Status do servidor")
+    print("   POST /admin/adicionar_licenca - Adicionar nova licença")
+    print("="*70 + "\n")
+    
     app.run(host=HOST, port=PORT, debug=DEBUG)
-
